@@ -1,4 +1,5 @@
 import { Locales } from './locales.js';
+import { alignGraphToReference, cloneGraph } from './treeAlignment.js';
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 export function makeSvg(tag, attrs = {}) {
@@ -233,19 +234,31 @@ export function computeRadialTreeLayout(graph) {
 // ---------------------------------------------------------
 // Your existing wrapper, updated to trigger the layout 
 // ---------------------------------------------------------
-export function renderGraphSvg(svg, graph, { nodeFill = "#9ed6ff", width = 420, height = 240 } = {}) {
+export function renderGraphSvg(svg, graph, {
+  nodeFill = "#9ed6ff",
+  width = 420,
+  height = 240,
+  referenceGraph = null,
+  alignToReference = false,
+} = {}) {
+  let displayGraph = cloneGraph(graph);
+
   // NEW: Check if layout needs to be computed (e.g. if any node is missing an [x, y] pos)
-  const needsLayout = graph.nodes.some(n => !n.pos);
+  const needsLayout = displayGraph.nodes.some(n => !n.pos);
   if (needsLayout) {
-    computeRadialTreeLayout(graph);
+    computeRadialTreeLayout(displayGraph);
   }
 
-  const bounds = boundsFromGraph(graph);
+  if (alignToReference && referenceGraph?.nodes?.length) {
+    displayGraph = alignGraphToReference(displayGraph, referenceGraph);
+  }
+
+  const bounds = boundsFromGraph(displayGraph);
   const scale = fitScale(bounds, width, height);
   
-  for (const edge of graph.edges) {
-    const start = pointForNode(graph, edge.u);
-    const end = pointForNode(graph, edge.v);
+  for (const edge of displayGraph.edges) {
+    const start = pointForNode(displayGraph, edge.u);
+    const end = pointForNode(displayGraph, edge.v);
     const attrs = {
       x1: transformX(start[0], bounds, scale, width),
       y1: transformY(start[1], bounds, scale, height),
@@ -262,7 +275,7 @@ export function renderGraphSvg(svg, graph, { nodeFill = "#9ed6ff", width = 420, 
     svg.appendChild(makeSvg("line", attrs));
   }
   
-  for (const node of graph.nodes) {
+  for (const node of displayGraph.nodes) {
     if (!node.pos) continue;
     svg.appendChild(makeSvg("circle", {
       cx: transformX(node.pos[0], bounds, scale, width),
