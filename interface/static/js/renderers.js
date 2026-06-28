@@ -1,4 +1,5 @@
 import { Locales } from './locales.js';
+import { computeSymmetricTreeLayout } from './treeSymmetryLayout.js';
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 export function makeSvg(tag, attrs = {}) {
@@ -233,18 +234,21 @@ export function computeRadialTreeLayout(graph) {
 // ---------------------------------------------------------
 // Your existing wrapper, updated to trigger the layout 
 // ---------------------------------------------------------
-export function renderGraphSvg(svg, graph, {width = 420, height = 240 } = {}) {
-  const needsLayout = graph.nodes.some(n => !n.pos);
+export function renderGraphSvg(svg, graph, { nodeFill = "#9ed6ff", width = 420, height = 240, symmetryLayout = true } = {}) {
+  const graphToRender = symmetryLayout ? (computeSymmetricTreeLayout(graph) || graph) : graph;
+
+  // NEW: Check if layout needs to be computed (e.g. if any node is missing an [x, y] pos)
+  const needsLayout = graphToRender.nodes.some(n => !n.pos);
   if (needsLayout) {
-    computeRadialTreeLayout(graph);
+    computeRadialTreeLayout(graphToRender);
   }
 
-  const bounds = boundsFromGraph(graph);
+  const bounds = boundsFromGraph(graphToRender);
   const scale = fitScale(bounds, width, height);
   
-  for (const edge of graph.edges) {
-    const start = pointForNode(graph, edge.u);
-    const end = pointForNode(graph, edge.v);
+  for (const edge of graphToRender.edges) {
+    const start = pointForNode(graphToRender, edge.u);
+    const end = pointForNode(graphToRender, edge.v);
     const attrs = {
       x1: transformX(start[0], bounds, scale, width),
       y1: transformY(start[1], bounds, scale, height),
@@ -262,7 +266,7 @@ export function renderGraphSvg(svg, graph, {width = 420, height = 240 } = {}) {
     svg.appendChild(makeSvg("line", attrs));
   }
   
-  for (const node of graph.nodes) {
+  for (const node of graphToRender.nodes) {
     if (!node.pos) continue;
     svg.appendChild(makeSvg("circle", {
       cx: transformX(node.pos[0], bounds, scale, width),
