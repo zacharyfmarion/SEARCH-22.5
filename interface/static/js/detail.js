@@ -117,7 +117,7 @@ export function renderDetail(result, index) {
         // Pass 400, 400 so it matches the viewBox square
         renderFoldSvg(svg, result.fold, 400, 400); 
       } else {
-        renderGraphSvg(svg, result.tree, { nodeFill: "#8cffc1", width: 400, height: 400 });
+        renderGraphSvg(svg, result.tree, { nodeFill: "#8cffc1", width: 400, height: 400, resultSymmetry: result.symmetry });
       }
     },
   });
