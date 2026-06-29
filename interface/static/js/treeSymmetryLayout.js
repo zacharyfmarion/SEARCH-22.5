@@ -1,6 +1,8 @@
 const LENGTH_EPSILON = 1e-6;
 const AXIS_ANGLE = -Math.PI / 2;
 const AXIS_SIDE_FAN = Math.PI * 0.55;
+const AXIS_FIXED_FLAP_OFFSET = Math.PI * 0.34;
+const AXIS_FIXED_FLAP_SPACING = Math.PI * 0.12;
 const SUBTREE_FAN = Math.PI * 0.72;
 const MIN_SUBTREE_FAN = Math.PI * 0.28;
 
@@ -299,12 +301,17 @@ function addPolar(point, length, angle) {
   ];
 }
 
-function mirroredAngle(rightAngle) {
-  return Math.PI - rightAngle;
+function mirroredAngle(rightAngle, axisAngle = AXIS_ANGLE) {
+  return 2 * axisAngle - rightAngle;
 }
 
 function fixedBranchAngle(baseAngle, index) {
-  return index % 2 === 0 ? baseAngle : baseAngle + Math.PI;
+  if (index === 0) return baseAngle;
+
+  const fixedFlapIndex = index - 1;
+  const side = fixedFlapIndex % 2 === 0 ? 1 : -1;
+  const spacing = Math.floor(fixedFlapIndex / 2) * AXIS_FIXED_FLAP_SPACING;
+  return baseAngle + side * (AXIS_FIXED_FLAP_OFFSET + spacing);
 }
 
 function layOutFromAxis(plan, tree, analyzer, positions, x, y, axisAngle = AXIS_ANGLE) {
@@ -314,15 +321,16 @@ function layOutFromAxis(plan, tree, analyzer, positions, x, y, axisAngle = AXIS_
   const offsets = centeredOffsets(branchPairs.length, AXIS_SIDE_FAN);
   for (let index = 0; index < branchPairs.length; index += 1) {
     const pair = branchPairs[index];
-    const rightAngle = offsets[index];
+    const rightAngle = axisAngle + Math.PI / 2 + offsets[index];
     layOutMirroredPair(
       pair.left,
       pair.right,
       tree,
       analyzer,
       positions,
-      mirroredAngle(rightAngle),
+      mirroredAngle(rightAngle, axisAngle),
       rightAngle,
+      axisAngle,
       SUBTREE_FAN
     );
   }
@@ -335,7 +343,7 @@ function layOutFromAxis(plan, tree, analyzer, positions, x, y, axisAngle = AXIS_
   }
 }
 
-function layOutMirroredPair(leftEdge, rightEdge, tree, analyzer, positions, leftAngle, rightAngle, fan) {
+function layOutMirroredPair(leftEdge, rightEdge, tree, analyzer, positions, leftAngle, rightAngle, axisAngle, fan) {
   const leftParent = positions.get(leftEdge.from);
   const rightParent = positions.get(rightEdge.from);
   if (!leftParent || !rightParent) return;
@@ -362,8 +370,9 @@ function layOutMirroredPair(leftEdge, rightEdge, tree, analyzer, positions, left
       tree,
       analyzer,
       positions,
-      mirroredAngle(childRightAngle),
+      mirroredAngle(childRightAngle, axisAngle),
       childRightAngle,
+      axisAngle,
       childFan
     );
   }
