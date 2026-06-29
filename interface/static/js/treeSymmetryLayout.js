@@ -234,10 +234,10 @@ function betterPlan(candidate, currentBest) {
   if (!currentBest) return true;
   const a = candidate.stats;
   const b = currentBest.stats;
+  if (a.mirroredNodes !== b.mirroredNodes) return a.mirroredNodes > b.mirroredNodes;
   if (a.pairCount !== b.pairCount) return a.pairCount > b.pairCount;
   if (a.axisEdges !== b.axisEdges) return a.axisEdges > b.axisEdges;
   if (Math.abs(a.axisLength - b.axisLength) > LENGTH_EPSILON) return a.axisLength > b.axisLength;
-  if (a.mirroredNodes !== b.mirroredNodes) return a.mirroredNodes > b.mirroredNodes;
   return compareIds(candidate.rootId, currentBest.rootId) < 0;
 }
 
