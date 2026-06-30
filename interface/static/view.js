@@ -365,7 +365,14 @@ function populatePanel(containerId, renderFn, data, options = {}) {
     if (renderFn === renderHeatSvg) {
         renderFn(svg, data);
     } else if (renderFn === renderGraphSvg) {
-        renderFn(svg, data, {width: options.w || SVGSIZE, height: options.h || SVGSIZE });
+        renderFn(svg, data, {
+            nodeFill: options.nodeFill || "#8cffc1",
+            width: options.w || SVGSIZE,
+            height: options.h || SVGSIZE,
+            symmetryLayout: options.symmetryLayout !== false,
+            resultSymmetry: options.resultSymmetry || "none",
+            componentMap: options.componentMap || null,
+        });
     } else {
         renderFn(svg, data, options.w || SVGSIZE, options.h || SVGSIZE);
     }
@@ -381,11 +388,11 @@ function drawAllPanels(result) {
     const packingSvg = populatePanel("target-packing", renderPackingSvg, result.packing, {w: SVGSIZE, h: SVGSIZE});
     setupInteractiveSvg(packingSvg, "Packing", result);
     
-    const treeSvg = populatePanel("target-tree", renderGraphSvg, result.tree, {w: SVGSIZE, h: SVGSIZE,});
+    const treeSvg = populatePanel("target-tree", renderGraphSvg, result.tree, {w: SVGSIZE, h: SVGSIZE, resultSymmetry: result.symmetry, componentMap: result.comp_map});
     setupInteractiveSvg(treeSvg, "Tree", result);
     
-    populatePanel("target-topology", renderGraphSvg, result.topology, {w: SVGSIZE, h: SVGSIZE,});
-    populatePanel("target-tiling", renderGraphSvg, result.solved_tiling, {w: SVGSIZE, h: SVGSIZE,});
+    populatePanel("target-topology", renderGraphSvg, result.topology, {w: SVGSIZE, h: SVGSIZE, symmetryLayout: false});
+    populatePanel("target-tiling", renderGraphSvg, result.solved_tiling, {w: SVGSIZE, h: SVGSIZE, symmetryLayout: false});
     populatePanel("target-fold", renderFoldSvg, result.fold, {w: SVGSIZE, h: SVGSIZE});
     populatePanel("target-heat", renderHeatSvg, result.heat, {w: SVGSIZE, h: SVGSIZE});
 }

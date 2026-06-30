@@ -44,7 +44,7 @@ export function renderResults() {
     thumb.className = "thumb";
     const svg = makeSvg("svg", { viewBox: "0 0 220 220", class: "thumb-svg" });
     if (thumbMode === "tree" && result.tree) {
-      renderGraphSvg(svg, result.tree, { nodeFill: "#8cffc1", width: 220, height: 220 });
+      renderGraphSvg(svg, result.tree, { nodeFill: "#8cffc1", width: 220, height: 220, resultSymmetry: result.symmetry, componentMap: result.comp_map });
     } else if (thumbMode === "packing" && result.packing) {
       renderPackingSvg(svg, result.packing, 220, 220);
     } else if (thumbMode === "fold" && result.fold) {
