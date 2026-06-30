@@ -5,6 +5,7 @@ const AXIS_FIXED_FLAP_OFFSET = Math.PI * 0.34;
 const AXIS_FIXED_FLAP_SPACING = Math.PI * 0.12;
 const SUBTREE_FAN = Math.PI * 0.72;
 const MIN_SUBTREE_FAN = Math.PI * 0.28;
+const COMPONENT_MATCH_TOLERANCE_RATIO = 1e-5;
 
 function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
@@ -31,6 +32,11 @@ function compareBranches(a, b) {
     compareIds(a.to, b.to) ||
     a.index - b.index
   );
+}
+
+function componentKey(value) {
+  if (value === null || value === undefined) return null;
+  return String(value);
 }
 
 function pointDistance(a, b) {
@@ -73,8 +79,9 @@ function buildTree(graph) {
     const length = edgeLength(edge, nodeMap);
     const key = `${String(edge.u)}--${String(edge.v)}--${index}`;
 
-    adjacency.get(edge.u).push({ from: edge.u, to: edge.v, length, index, key });
-    adjacency.get(edge.v).push({ from: edge.v, to: edge.u, length, index, key });
+    const compId = componentKey(edge.comp_id);
+    adjacency.get(edge.u).push({ from: edge.u, to: edge.v, length, index, key, compId });
+    adjacency.get(edge.v).push({ from: edge.v, to: edge.u, length, index, key, compId });
   }
 
   const visited = new Set();
@@ -90,6 +97,143 @@ function buildTree(graph) {
 
   if (visited.size !== nodes.length) return null;
   return { nodes, edges, nodeMap, adjacency };
+}
+
+function finitePoint(value) {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const x = Number(value[0]);
+  const y = Number(value[1]);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  return [x, y];
+}
+
+function boundsFromPoints(points) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+
+  for (const point of points) {
+    minX = Math.min(minX, point[0]);
+    maxX = Math.max(maxX, point[0]);
+    minY = Math.min(minY, point[1]);
+    maxY = Math.max(maxY, point[1]);
+  }
+
+  if (!Number.isFinite(minX) || !Number.isFinite(maxX) || !Number.isFinite(minY) || !Number.isFinite(maxY)) {
+    return null;
+  }
+
+  return { minX, maxX, minY, maxY };
+}
+
+function reflectPoint(point, bounds, resultSymmetry) {
+  if (resultSymmetry === "book") {
+    return [bounds.minX + bounds.maxX - point[0], point[1]];
+  }
+
+  const spanX = bounds.maxX - bounds.minX;
+  const spanY = bounds.maxY - bounds.minY;
+  if (spanX <= LENGTH_EPSILON || spanY <= LENGTH_EPSILON) return null;
+
+  const normalizedX = (point[0] - bounds.minX) / spanX;
+  const normalizedY = (point[1] - bounds.minY) / spanY;
+  return [
+    bounds.minX + normalizedY * spanX,
+    bounds.minY + normalizedX * spanY,
+  ];
+}
+
+function nearestDistance(point, points) {
+  let best = Infinity;
+  for (const candidate of points) {
+    best = Math.min(best, Math.hypot(point[0] - candidate[0], point[1] - candidate[1]));
+  }
+  return best;
+}
+
+function directedPointCloudDistance(points, targets) {
+  let worst = 0;
+  for (const point of points) {
+    worst = Math.max(worst, nearestDistance(point, targets));
+  }
+  return worst;
+}
+
+function pointCloudDistance(a, b) {
+  if (!a.length || !b.length) return Infinity;
+  return Math.max(directedPointCloudDistance(a, b), directedPointCloudDistance(b, a));
+}
+
+function buildComponentSymmetryHints(componentMap, resultSymmetry) {
+  const normalizedSymmetry = String(resultSymmetry || "none").toLowerCase();
+  if (!isKnownSymmetric(normalizedSymmetry) || !Array.isArray(componentMap) || componentMap.length === 0) {
+    return null;
+  }
+
+  const groupedPoints = new Map();
+  const allPoints = [];
+
+  for (const facet of componentMap) {
+    const compId = componentKey(facet?.comp_id);
+    if (compId === null || !Array.isArray(facet?.vertices)) continue;
+
+    if (!groupedPoints.has(compId)) groupedPoints.set(compId, []);
+    for (const vertex of facet.vertices) {
+      const point = finitePoint(vertex);
+      if (!point) continue;
+      groupedPoints.get(compId).push(point);
+      allPoints.push(point);
+    }
+  }
+
+  if (groupedPoints.size === 0 || allPoints.length === 0) return null;
+
+  const bounds = boundsFromPoints(allPoints);
+  if (!bounds) return null;
+
+  const span = Math.max(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+  const tolerance = Math.max(span * COMPONENT_MATCH_TOLERANCE_RATIO, LENGTH_EPSILON);
+  const components = new Map();
+
+  for (const [compId, points] of groupedPoints) {
+    if (!points.length) continue;
+    const reflected = points.map((point) => reflectPoint(point, bounds, normalizedSymmetry));
+    if (reflected.some((point) => point === null)) continue;
+    components.set(compId, { points, reflected });
+  }
+
+  const mirrorPartner = new Map();
+  for (const [compId, component] of components) {
+    const scores = [];
+    for (const [candidateId, candidate] of components) {
+      scores.push({
+        compId: candidateId,
+        score: pointCloudDistance(component.reflected, candidate.points),
+      });
+    }
+
+    scores.sort((a, b) => a.score - b.score || compareIds(a.compId, b.compId));
+    const best = scores[0];
+    const second = scores[1];
+    if (!best || best.score > tolerance) continue;
+    if (second && second.score <= tolerance) continue;
+    mirrorPartner.set(compId, best.compId);
+  }
+
+  for (const [compId, partnerId] of [...mirrorPartner]) {
+    if (mirrorPartner.get(partnerId) !== compId) {
+      mirrorPartner.delete(compId);
+    }
+  }
+
+  const axisFixed = new Set();
+  for (const [compId, partnerId] of mirrorPartner) {
+    if (compId === partnerId) axisFixed.add(compId);
+  }
+
+  if (mirrorPartner.size === 0) return null;
+  return { mirrorPartner, axisFixed, components: new Set(mirrorPartner.keys()) };
 }
 
 function createTreeAnalyzer(tree) {
@@ -159,7 +303,68 @@ function isKnownSymmetric(resultSymmetry) {
   return normalized === "diag" || normalized === "book";
 }
 
-function createAxisPlanner(analyzer, { allowMultipleFixedBranches = false } = {}) {
+function treeHasCompleteComponentHints(tree, componentHints) {
+  if (!componentHints) return false;
+  for (const edge of tree.edges) {
+    const compId = componentKey(edge.comp_id);
+    if (compId === null || !componentHints.components.has(compId)) return false;
+  }
+  return true;
+}
+
+function planTreeOnlyBranches(branches, allowMultipleFixedBranches) {
+  const pairs = [];
+  const fixedEdges = [];
+
+  for (const [, group] of groupBySignature(branches)) {
+    const members = [...group];
+    if (members.length % 2 === 1) {
+      if (!allowMultipleFixedBranches && fixedEdges.length > 0) return null;
+      fixedEdges.push(members.shift());
+    }
+
+    for (let index = 0; index < members.length; index += 2) {
+      pairs.push({ left: members[index], right: members[index + 1] });
+    }
+  }
+
+  return { pairs, fixedEdges };
+}
+
+function planComponentGuidedBranches(branches, componentHints, allowMultipleFixedBranches) {
+  const pairs = [];
+  const fixedEdges = [];
+  const remaining = [...branches].sort(compareBranches);
+
+  while (remaining.length) {
+    const branch = remaining.shift();
+    if (componentHints.axisFixed.has(branch.compId)) {
+      fixedEdges.push(branch);
+      continue;
+    }
+
+    const partnerId = componentHints.mirrorPartner.get(branch.compId);
+    if (!partnerId || partnerId === branch.compId) return null;
+
+    const matches = [];
+    for (let index = 0; index < remaining.length; index += 1) {
+      const candidate = remaining[index];
+      if (candidate.compId === partnerId && candidate.signature === branch.signature) {
+        matches.push({ candidate, index });
+      }
+    }
+
+    if (matches.length !== 1) return null;
+    const [match] = matches;
+    remaining.splice(match.index, 1);
+    pairs.push({ left: branch, right: match.candidate });
+  }
+
+  if (!allowMultipleFixedBranches && fixedEdges.length > 1) return null;
+  return { pairs, fixedEdges };
+}
+
+function createAxisPlanner(analyzer, { allowMultipleFixedBranches = false, componentHints = null } = {}) {
   const memo = new Map();
 
   function memoKey(nodeId, parentId) {
@@ -170,26 +375,18 @@ function createAxisPlanner(analyzer, { allowMultipleFixedBranches = false } = {}
     const key = memoKey(nodeId, parentId);
     if (memo.has(key)) return memo.get(key);
 
-    const pairs = [];
-    const fixedEdges = [];
+    const branches = analyzer.branchesFrom(nodeId, parentId);
+    const branchPlan = componentHints
+      ? planComponentGuidedBranches(branches, componentHints, allowMultipleFixedBranches)
+      : planTreeOnlyBranches(branches, allowMultipleFixedBranches);
 
-    for (const [, group] of groupBySignature(analyzer.branchesFrom(nodeId, parentId))) {
-      const members = [...group];
-      if (members.length % 2 === 1) {
-        if (!allowMultipleFixedBranches && fixedEdges.length > 0) {
-          memo.set(key, null);
-          return null;
-        }
-        fixedEdges.push(members.shift());
-      }
-
-      for (let index = 0; index < members.length; index += 2) {
-        pairs.push({ left: members[index], right: members[index + 1] });
-      }
+    if (!branchPlan) {
+      memo.set(key, null);
+      return null;
     }
 
     const fixedBranches = [];
-    for (const edge of fixedEdges.sort((a, b) => b.size - a.size || compareBranches(a, b))) {
+    for (const edge of branchPlan.fixedEdges.sort((a, b) => b.size - a.size || compareBranches(a, b))) {
       const childPlan = build(edge.to, nodeId);
       if (!childPlan) {
         memo.set(key, null);
@@ -198,7 +395,7 @@ function createAxisPlanner(analyzer, { allowMultipleFixedBranches = false } = {}
       fixedBranches.push({ edge, childPlan });
     }
 
-    const plan = { nodeId, parentId, fixedBranches, pairs };
+    const plan = { nodeId, parentId, fixedBranches, pairs: branchPlan.pairs };
     memo.set(key, plan);
     return plan;
   }
@@ -209,6 +406,7 @@ function createAxisPlanner(analyzer, { allowMultipleFixedBranches = false } = {}
 function planStats(plan, analyzer) {
   let axisEdges = 0;
   let axisLength = 0;
+  let axisForks = 0;
   let mirroredNodes = 0;
   let pairCount = 0;
 
@@ -220,6 +418,8 @@ function planStats(plan, analyzer) {
       mirroredNodes += analyzer.subtreeSize(pair.left.to, current.nodeId);
       mirroredNodes += analyzer.subtreeSize(pair.right.to, current.nodeId);
     }
+    const continuationCount = current.fixedBranches.filter((fixedBranch) => planContinuesAxis(fixedBranch.childPlan)).length;
+    axisForks += Math.max(0, continuationCount - 1);
     for (const fixedBranch of current.fixedBranches) {
       axisEdges += 1;
       axisLength += fixedBranch.edge.length;
@@ -227,7 +427,7 @@ function planStats(plan, analyzer) {
     }
   }
 
-  return { axisEdges, axisLength, mirroredNodes, pairCount };
+  return { axisEdges, axisLength, axisForks, mirroredNodes, pairCount };
 }
 
 function betterPlan(candidate, currentBest) {
@@ -238,6 +438,7 @@ function betterPlan(candidate, currentBest) {
   if (a.pairCount !== b.pairCount) return a.pairCount > b.pairCount;
   if (a.axisEdges !== b.axisEdges) return a.axisEdges > b.axisEdges;
   if (Math.abs(a.axisLength - b.axisLength) > LENGTH_EPSILON) return a.axisLength > b.axisLength;
+  if (a.axisForks !== b.axisForks) return a.axisForks < b.axisForks;
   return compareIds(candidate.rootId, currentBest.rootId) < 0;
 }
 
@@ -278,7 +479,38 @@ function sortedPairs(pairs) {
   });
 }
 
-function matchMirroredBranches(leftBranches, rightBranches) {
+function matchComponentGuidedMirroredBranches(leftBranches, rightBranches, componentHints) {
+  if (leftBranches.length !== rightBranches.length) return null;
+
+  const rightRemaining = [...rightBranches].sort(compareBranches);
+  const pairs = [];
+
+  for (const leftBranch of [...leftBranches].sort(compareBranches)) {
+    const partnerId = componentHints.mirrorPartner.get(leftBranch.compId);
+    if (!partnerId || partnerId === leftBranch.compId) return null;
+
+    const matches = [];
+    for (let index = 0; index < rightRemaining.length; index += 1) {
+      const rightBranch = rightRemaining[index];
+      if (rightBranch.compId === partnerId && rightBranch.signature === leftBranch.signature) {
+        matches.push({ rightBranch, index });
+      }
+    }
+
+    if (matches.length !== 1) return null;
+    const [match] = matches;
+    rightRemaining.splice(match.index, 1);
+    pairs.push({ left: leftBranch, right: match.rightBranch });
+  }
+
+  return pairs;
+}
+
+function matchMirroredBranches(leftBranches, rightBranches, componentHints = null) {
+  if (componentHints) {
+    return matchComponentGuidedMirroredBranches(leftBranches, rightBranches, componentHints);
+  }
+
   const leftGroups = groupBySignature(leftBranches);
   const rightGroups = new Map(groupBySignature(rightBranches));
   const pairs = [];
@@ -314,7 +546,13 @@ function fixedBranchAngle(baseAngle, index) {
   return baseAngle + side * (AXIS_FIXED_FLAP_OFFSET + spacing);
 }
 
-function layOutFromAxis(plan, tree, analyzer, positions, x, y, axisAngle = AXIS_ANGLE) {
+function planContinuesAxis(plan) {
+  if (!plan) return false;
+  if (plan.pairs.length > 0) return true;
+  return plan.fixedBranches.some((fixedBranch) => planContinuesAxis(fixedBranch.childPlan));
+}
+
+function layOutFromAxis(plan, tree, analyzer, positions, x, y, axisAngle = AXIS_ANGLE, componentHints = null) {
   positions.set(plan.nodeId, [x, y]);
 
   const branchPairs = sortedPairs(plan.pairs);
@@ -331,19 +569,30 @@ function layOutFromAxis(plan, tree, analyzer, positions, x, y, axisAngle = AXIS_
       mirroredAngle(rightAngle, axisAngle),
       rightAngle,
       axisAngle,
-      SUBTREE_FAN
+      SUBTREE_FAN,
+      componentHints
     );
   }
 
-  for (let index = 0; index < plan.fixedBranches.length; index += 1) {
-    const fixedBranch = plan.fixedBranches[index];
-    const childAngle = fixedBranchAngle(axisAngle, index);
+  const fixedBranches = [...plan.fixedBranches].sort((a, b) => {
+    const continuationDiff = Number(planContinuesAxis(b.childPlan)) - Number(planContinuesAxis(a.childPlan));
+    return continuationDiff || b.edge.size - a.edge.size || compareBranches(a.edge, b.edge);
+  });
+  let hasAxisContinuation = false;
+  let fixedFlapIndex = 0;
+  for (const fixedBranch of fixedBranches) {
+    const continuesAxis = planContinuesAxis(fixedBranch.childPlan);
+    const childAngle = continuesAxis && !hasAxisContinuation
+      ? axisAngle
+      : fixedBranchAngle(axisAngle, fixedFlapIndex + 1);
+    hasAxisContinuation = hasAxisContinuation || continuesAxis;
+    if (childAngle !== axisAngle) fixedFlapIndex += 1;
     const next = addPolar([x, y], fixedBranch.edge.length, childAngle);
-    layOutFromAxis(fixedBranch.childPlan, tree, analyzer, positions, next[0], next[1], childAngle);
+    layOutFromAxis(fixedBranch.childPlan, tree, analyzer, positions, next[0], next[1], childAngle, componentHints);
   }
 }
 
-function layOutMirroredPair(leftEdge, rightEdge, tree, analyzer, positions, leftAngle, rightAngle, axisAngle, fan) {
+function layOutMirroredPair(leftEdge, rightEdge, tree, analyzer, positions, leftAngle, rightAngle, axisAngle, fan, componentHints = null) {
   const leftParent = positions.get(leftEdge.from);
   const rightParent = positions.get(rightEdge.from);
   if (!leftParent || !rightParent) return;
@@ -355,7 +604,7 @@ function layOutMirroredPair(leftEdge, rightEdge, tree, analyzer, positions, left
 
   const leftBranches = analyzer.branchesFrom(leftEdge.to, leftEdge.from);
   const rightBranches = analyzer.branchesFrom(rightEdge.to, rightEdge.from);
-  const branchPairs = matchMirroredBranches(leftBranches, rightBranches);
+  const branchPairs = matchMirroredBranches(leftBranches, rightBranches, componentHints);
   if (!branchPairs || branchPairs.length === 0) return;
 
   const childFan = Math.max(MIN_SUBTREE_FAN, fan * 0.86);
@@ -373,23 +622,17 @@ function layOutMirroredPair(leftEdge, rightEdge, tree, analyzer, positions, left
       mirroredAngle(childRightAngle, axisAngle),
       childRightAngle,
       axisAngle,
-      childFan
+      childFan,
+      componentHints
     );
   }
 }
 
-export function computeSymmetricTreeLayout(graph, options = {}) {
-  const tree = buildTree(graph);
-  if (!tree) return null;
-
-  const analyzer = createTreeAnalyzer(tree);
-  const plan = findBestAxisPlan(tree, analyzer, {
-    allowMultipleFixedBranches: isKnownSymmetric(options.resultSymmetry),
-  });
+function layOutPlan(graph, tree, analyzer, plan, componentHints = null) {
   if (!plan) return null;
 
   const positions = new Map();
-  layOutFromAxis(plan, tree, analyzer, positions, 0, 0);
+  layOutFromAxis(plan, tree, analyzer, positions, 0, 0, AXIS_ANGLE, componentHints);
   if (positions.size !== tree.nodes.length) return null;
 
   const laidOutGraph = cloneGraph(graph);
@@ -398,4 +641,24 @@ export function computeSymmetricTreeLayout(graph, options = {}) {
     if (position) node.pos = position;
   }
   return laidOutGraph;
+}
+
+export function computeSymmetricTreeLayout(graph, options = {}) {
+  const tree = buildTree(graph);
+  if (!tree) return null;
+
+  const analyzer = createTreeAnalyzer(tree);
+  const componentHints = buildComponentSymmetryHints(options.componentMap, options.resultSymmetry);
+  if (treeHasCompleteComponentHints(tree, componentHints)) {
+    const componentPlan = findBestAxisPlan(tree, analyzer, {
+      allowMultipleFixedBranches: true,
+      componentHints,
+    });
+    return layOutPlan(graph, tree, analyzer, componentPlan, componentHints);
+  }
+
+  const plan = findBestAxisPlan(tree, analyzer, {
+    allowMultipleFixedBranches: isKnownSymmetric(options.resultSymmetry),
+  });
+  return layOutPlan(graph, tree, analyzer, plan);
 }

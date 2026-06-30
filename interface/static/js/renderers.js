@@ -234,8 +234,10 @@ export function computeRadialTreeLayout(graph) {
 // ---------------------------------------------------------
 // Your existing wrapper, updated to trigger the layout 
 // ---------------------------------------------------------
-export function renderGraphSvg(svg, graph, { nodeFill = "#9ed6ff", width = 420, height = 240, symmetryLayout = true, resultSymmetry = "none" } = {}) {
-  const graphToRender = symmetryLayout ? (computeSymmetricTreeLayout(graph, { resultSymmetry }) || graph) : graph;
+export function renderGraphSvg(svg, graph, { nodeFill = "#9ed6ff", width = 420, height = 240, symmetryLayout = true, resultSymmetry = "none", componentMap = null } = {}) {
+  const graphToRender = symmetryLayout
+    ? (computeSymmetricTreeLayout(graph, { resultSymmetry, componentMap }) || graph)
+    : graph;
 
   // NEW: Check if layout needs to be computed (e.g. if any node is missing an [x, y] pos)
   const needsLayout = graphToRender.nodes.some(n => !n.pos);
