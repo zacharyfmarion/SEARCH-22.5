@@ -1,0 +1,59 @@
+{
+  "schema": "search-22.5/target-tree-fixtures/v1",
+  "targets": [
+    {
+      "name": "equal_tripod",
+      "nodes": [
+        {"id": "body"}, {"id": "a"}, {"id": "b"}, {"id": "c"}
+      ],
+      "edges": [
+        {"nodes": ["body", "a"], "length": 1.0},
+        {"nodes": ["body", "b"], "length": 1.0},
+        {"nodes": ["body", "c"], "length": 1.0}
+      ]
+    },
+    {
+      "name": "asymmetric_quadruped",
+      "nodes": [
+        {"id": "body"}, {"id": "head"}, {"id": "tail"},
+        {"id": "front_legs"}, {"id": "back_legs"}
+      ],
+      "edges": [
+        {"nodes": ["body", "head"], "length": 0.6},
+        {"nodes": ["body", "tail"], "length": 1.0},
+        {"nodes": ["body", "front_legs"], "length": 1.4},
+        {"nodes": ["body", "back_legs"], "length": 1.8}
+      ]
+    },
+    {
+      "name": "double_tripod",
+      "nodes": [
+        {"id": "front"}, {"id": "back"}, {"id": "head"},
+        {"id": "front_leg"}, {"id": "tail"}, {"id": "back_leg"}
+      ],
+      "edges": [
+        {"nodes": ["front", "back"], "length": 0.8},
+        {"nodes": ["front", "head"], "length": 1.0},
+        {"nodes": ["front", "front_leg"], "length": 1.3},
+        {"nodes": ["back", "tail"], "length": 1.1},
+        {"nodes": ["back", "back_leg"], "length": 1.4}
+      ]
+    },
+    {
+      "name": "three_junction_chain",
+      "nodes": [
+        {"id": "j0"}, {"id": "j1"}, {"id": "j2"},
+        {"id": "a"}, {"id": "b"}, {"id": "c"}, {"id": "d"}, {"id": "e"}
+      ],
+      "edges": [
+        {"nodes": ["j0", "j1"], "length": 0.7},
+        {"nodes": ["j1", "j2"], "length": 0.9},
+        {"nodes": ["j0", "a"], "length": 1.0},
+        {"nodes": ["j0", "b"], "length": 1.2},
+        {"nodes": ["j1", "c"], "length": 1.4},
+        {"nodes": ["j2", "d"], "length": 1.1},
+        {"nodes": ["j2", "e"], "length": 1.5}
+      ]
+    }
+  ]
+}
