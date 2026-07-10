@@ -95,3 +95,32 @@ trees. It does show that increasing N is not a monotonic replacement for
 searching the smaller topology classes. A practical archive lookup must search
 across resolutions, while a forward solver should derive a complexity bound
 from the requested tree instead of assuming a single large N covers it.
+
+## From-scratch generation baseline
+
+`target_conditioned_generate_spike.py` closes the first end-to-end loop without
+using a tiling database. Given any target fixture, it enumerates axial
+topologies with Z3, realizes each topology with the existing MILP, builds and
+folds the CP, rejects remaining Kawasaki errors, and accepts only an exact tree
+topology match.
+
+```bash
+.venv/bin/python research/target_conditioned_generate_spike.py \
+  --targets research/target_tree_fixtures.json \
+  --target equal_tripod --N 2 --symmetry none \
+  --max-topologies 80 --output /tmp/search225-tripod-generation.json
+```
+
+This baseline is intentionally brute-force. Its result tells us how much work
+is wasted before the first target match and gives a measurable baseline for the
+next change: target-derived pruning inside topology enumeration.
+
+The equal-tripod baseline found an exact-topology CP after two enumerated
+topologies and 0.24 seconds. The CP had no remaining Kawasaki errors, but its
+worst normalized flap-length error was 16.18%. This confirms that topology and
+metric targeting are separate stages.
+
+The double-tripod baseline exhausted all 80 N=2 no-symmetry topologies in 4.69
+seconds. It realized 79 tilings, rejected one empty tree extraction, and found
+no topology match. This agrees with the complete archive scan and gives a clear
+negative control for future topology constraints.
